@@ -15,7 +15,7 @@ int main()
 	};
 	
 	// Init
-	auto status = WinAPIRsolver::init(arr, COUNT_OF(arr));
+	auto status = WinAPIResolver::init(arr, COUNT_OF(arr));
 	if (!WAPI_SUCCESS(status))
 		return 0;
 

@@ -18,7 +18,7 @@ MODULE_INF arr[] =
 	{USER32}
 };
 	
-auto status = WinAPIRsolver::init(arr, sizeof(arr)/sizeof(arr[0]));
+auto status = WinAPIResolver::init(arr, sizeof(arr)/sizeof(arr[0]));
 if (!WAPI_SUCCESS(status))
 	return; // Error handling
     

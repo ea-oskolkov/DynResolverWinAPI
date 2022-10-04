@@ -9,8 +9,8 @@
 #include "APIResolver.h"
 #include "APIResolverUtils.h"
 
-static WinAPIRsolver::LdrGetProcedureAddress pLdrGetProcedureAddress = nullptr;
-static WinAPIRsolver::PLdrLoadDll            pLdrLoadDll = nullptr;
+static WinAPIResolver::LdrGetProcedureAddress pLdrGetProcedureAddress = nullptr;
+static WinAPIResolver::PLdrLoadDll            pLdrLoadDll = nullptr;
 static HMODULE                hNtdll = 0;
 static PMODULE_INF            arrModuleInf = nullptr;
 static uint64_t               countModules = 0ull;
@@ -20,7 +20,7 @@ static constexpr const auto STR_NTDLL = L"ntdll.dll";
 static constexpr const auto STR_LDRLOADDLL = "LdrLoadDll";
 static constexpr const auto STR_LDRGETPROCEDUREADDRESS = "LdrGetProcedureAddress";
 
-namespace WinAPIRsolver
+namespace WinAPIResolver
 {
 
 	WAPI_RSOLVER_STATUS init(const PMODULE_INF pModuleInfArr, const uint64_t count) {

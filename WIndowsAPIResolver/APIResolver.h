@@ -33,7 +33,7 @@ typedef struct _MODULE_INF {
 	HMODULE hLib = 0;
 } MODULE_INF, * PMODULE_INF;
 
-namespace WinAPIRsolver
+namespace WinAPIResolver
 {
 	typedef struct _UNICODE_STRING
 	{
@@ -171,6 +171,6 @@ namespace WinAPIRsolver
 
 };
 
-#define WAPI(dll, func) ((decltype(&func))WinAPIRsolver::getProcAddress(WinAPIRsolver::getHandleModuleByName(##dll), (char*)#func))
+#define WAPI(dll, func) ((decltype(&func))WinAPIResolver::getProcAddress(WinAPIResolver::getHandleModuleByName(##dll), (char*)#func))
 #define _WAPI(dll, func) ((_##func)dynWAPI::getProcAddress(dynWAPI::getHandleModuleByName(##dll), (char*)#func))
 #endif
