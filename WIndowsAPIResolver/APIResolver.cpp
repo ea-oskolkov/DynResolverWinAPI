@@ -15,7 +15,12 @@ static HMODULE                hNtdll = 0;
 static PMODULE_INF            arrModuleInf = nullptr;
 static uint64_t               countModules = 0ull;
 
+#ifdef _WIN64
 static constexpr const auto PEB_OFFSET = 0x60;
+#else
+static constexpr const auto PEB_OFFSET = 0x30;
+#endif
+
 static constexpr const auto STR_NTDLL = L"ntdll.dll";
 static constexpr const auto STR_LDRLOADDLL = "LdrLoadDll";
 static constexpr const auto STR_LDRGETPROCEDUREADDRESS = "LdrGetProcedureAddress";
@@ -36,14 +41,12 @@ namespace WinAPIResolver
 
 		// Get LdrLoadDll func address
 		pLdrLoadDll = (PLdrLoadDll)(getFuncAddrFromNtdll(STR_LDRLOADDLL));
-
 		if (pLdrLoadDll == nullptr)
 			return WAPI_RSOLVER_STATUS::ERROR_FIND_LDRLOADDLL;
 
 		// Get LdrGetProcedureAddress func address
 		pLdrGetProcedureAddress = (LdrGetProcedureAddress)
 			(getFuncAddrFromNtdll(STR_LDRGETPROCEDUREADDRESS));
-
 		if (pLdrGetProcedureAddress == nullptr)
 			return WAPI_RSOLVER_STATUS::ERROR_FIND_LDRGETPROCEDUREADDRESS;
 
@@ -60,6 +63,9 @@ namespace WinAPIResolver
 	WAPI_RSOLVER_STATUS loadModules(const PMODULE_INF pModuleInfArr, const uint64_t count) {
 
 		for (uint64_t i = 0; i < count; ++i) {
+			if (pModuleInfArr[i].invalidName)
+				return WAPI_RSOLVER_STATUS::ERROR_INVALID_LIB_NAME;
+
 			pModuleInfArr[i].hLib = loadLibrary(pModuleInfArr[i].moduleName);
 
 			if (!pModuleInfArr[i].hLib)
@@ -90,28 +96,29 @@ namespace WinAPIResolver
 
 	HMODULE getHandleNtDll() {
 
-		HMODULE handleNtdll = 0;
-
+#if _WIN64
 		PPEB ptrPeb = (PPEB)(__readgsqword(PEB_OFFSET));
+#else
+		PPEB ptrPeb = (PPEB)(__readfsdword(PEB_OFFSET));
+#endif
 		if (ptrPeb) {
 			pProcessModuleInfo ProcessModule = (pProcessModuleInfo)(ptrPeb->Ldr);
 			pModuleInfoNode    ModuleList = (pModuleInfoNode)(ProcessModule->ModuleListLoadOrder.Flink);
 
-			// Finding dlls trought the PEB
+			// Finding DLLs trought the PEB
 			while (ModuleList->BaseAddress) {
 
 				// Find NTDLL.dll
 				if (compareString((wchar_t*)ModuleList->BaseDllName.Buffer, (wchar_t*)STR_NTDLL))
 				{
-					handleNtdll = (HMODULE)(ModuleList->BaseAddress);
-					break;
+					return (HMODULE)(ModuleList->BaseAddress);
 				}
 
 				ModuleList = (pModuleInfoNode)(ModuleList->InLoadOrderModuleList.Flink);
 			}
 		}
 
-		return handleNtdll;
+		return 0;
 	}
 
 	HMODULE getHandleModuleByName(const wchar_t* const dllName) {
@@ -132,14 +139,17 @@ namespace WinAPIResolver
 		PIMAGE_DOS_HEADER       imgDosHeader = nullptr;
 		PIMAGE_NT_HEADERS       imgNtheader = nullptr;
 		PIMAGE_EXPORT_DIRECTORY exportSection = nullptr;
-		PDWORD                  nameExpFuncBaseAddr = nullptr;
-		PWORD                   rvaOrdinal = nullptr;
+		PDWORD                  exportNames = nullptr;
+		PWORD                   ordinals = nullptr;
+		PDWORD functions = nullptr;
 
 		imgDosHeader = (PIMAGE_DOS_HEADER)(hNtdll);
 		if (imgDosHeader->e_magic != IMAGE_DOS_SIGNATURE)
 			return nullptr;
 
-		imgNtheader = (PIMAGE_NT_HEADERS)((DWORD_PTR)(imgDosHeader)+imgDosHeader->e_lfanew);
+		const char* imageBase = (char*)(imgDosHeader);
+
+		imgNtheader = (PIMAGE_NT_HEADERS)(imageBase + imgDosHeader->e_lfanew);
 		if (imgNtheader->Signature != IMAGE_NT_SIGNATURE)
 			return nullptr;
 
@@ -148,40 +158,31 @@ namespace WinAPIResolver
 			|| imgNtheader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size == NULL)
 			return nullptr;
 
-		exportSection = (PIMAGE_EXPORT_DIRECTORY)((DWORD_PTR)(imgDosHeader)+
+		exportSection = (PIMAGE_EXPORT_DIRECTORY)(imageBase +
 			imgNtheader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
-
-		if (exportSection == nullptr)
+		if (exportSection == nullptr || exportSection->NumberOfFunctions == 0)
 			return nullptr;
 
-		nameExpFuncBaseAddr = (PDWORD)((DWORD_PTR)(imgDosHeader)+
-			exportSection->AddressOfNames);
-
-		if (nameExpFuncBaseAddr == nullptr)
+		exportNames = (PDWORD)(imageBase + exportSection->AddressOfNames);
+		if (exportNames == nullptr)
 			return nullptr;
 
-		rvaOrdinal = (PWORD)((DWORD_PTR)(imgDosHeader)+
-			exportSection->AddressOfNameOrdinals);
+		ordinals = (PWORD)(imageBase + exportSection->AddressOfNameOrdinals);
+		if (ordinals == nullptr)
+			return nullptr;
 
-		if (rvaOrdinal == nullptr)
+		functions = (PDWORD)(imageBase + exportSection->AddressOfFunctions);
+		if (functions == nullptr)
 			return nullptr;
 
 		// Function search
-		int ordinal = -1;
 		for (DWORD i = 0; i < exportSection->NumberOfNames; ++i) {
-			PCHAR api_name = (PCHAR)((DWORD_PTR)(imgDosHeader)+nameExpFuncBaseAddr[i]);
+			const auto currentFuncName = (PCHAR)(imageBase + exportNames[i]);
 
-			if (compareString((PCHAR)api_name, (PCHAR)functionName)) {
-				ordinal = (UINT)(rvaOrdinal[i]);
-				break;
+			if (compareString((PCHAR)currentFuncName, (PCHAR)functionName)) {
+				const auto itemIdx = (UINT)(ordinals[i]);
+				return (LPVOID)(imageBase + functions[itemIdx]);
 			}
-		}
-
-		if (ordinal != -1)
-		{
-			PDWORD offsetFunc = (PDWORD)((DWORD_PTR)(imgDosHeader)+
-				exportSection->AddressOfFunctions);
-			return (LPVOID)((DWORD_PTR)(imgDosHeader)+offsetFunc[ordinal]);
 		}
 
 		return nullptr;

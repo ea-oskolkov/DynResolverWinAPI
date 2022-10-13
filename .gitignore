@@ -2,3 +2,5 @@ x64
 *.vcxproj.filters
 *.vcxproj.user
 .vs
+Debug
+Release

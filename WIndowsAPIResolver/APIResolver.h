@@ -11,17 +11,21 @@
 #include <subauth.h>
 #include <cstdint>
 
-#ifdef _WIN64
+#include "APIResolverUtils.h"
+
 #define MAX_LEN_MODULE_NAME 256
 
 #define WAPI_SUCCESS(dwapiStatus) (dwapiStatus == WAPI_RSOLVER_STATUS::SUCCESS)
 
 #define COUNT_OF(arr) (sizeof(arr)/sizeof(arr[0]))
 
+#pragma warning (disable:26495)
+
 enum class WAPI_RSOLVER_STATUS {
 	SUCCESS = 0,
 	ERROR_LOAD_LIB,
 	ERROR_NO_LIBS,
+	ERROR_INVALID_LIB_NAME,
 	ERROR_INVALID_PARAM,
 	ERROR_NTDLL_HANDLE,
 	ERROR_FIND_LDRLOADDLL,
@@ -31,6 +35,19 @@ enum class WAPI_RSOLVER_STATUS {
 typedef struct _MODULE_INF {
 	WCHAR moduleName[MAX_LEN_MODULE_NAME];
 	HMODULE hLib = 0;
+	bool invalidName = false;
+
+	_MODULE_INF(const WCHAR* const moduleName)
+	{
+		const auto sz = stringSize(moduleName) + sizeof(wchar_t);
+		if (sz > sizeof(this->moduleName))
+		{
+			invalidName = true;
+			return;
+		}
+		memcpy(this->moduleName, moduleName, sz);
+	}
+
 } MODULE_INF, * PMODULE_INF;
 
 namespace WinAPIResolver
@@ -115,8 +132,8 @@ namespace WinAPIResolver
 		ULONG SessionId;
 	} PEB, * PPEB;
 
-	using PLdrLoadDll = NTSTATUS(*)(PWCHAR, ULONG, PUNICODE_STRING, HMODULE*);
-	using LdrGetProcedureAddress = NTSTATUS(*)(IN HMODULE ModuleHandle, IN PANSI_STRING FunctionName OPTIONAL, WORD Oridinal OPTIONAL, PVOID* FunctionAddress);
+	using PLdrLoadDll = NTSTATUS(NTAPI*)(PWCHAR PathToFile, ULONG* Flags, UNICODE_STRING* ModuleFileName, HMODULE* ModuleHandle);
+	using LdrGetProcedureAddress = NTSTATUS(NTAPI*)(HMODULE ModuleHandle, PANSI_STRING FunctionName, WORD Oridinal, PVOID* FunctionAddress);
 
 	/**
 		@brief This function gets the handle to the DLL 'ntdll.dll' from PEB.
@@ -172,5 +189,4 @@ namespace WinAPIResolver
 };
 
 #define WAPI(dll, func) ((decltype(&func))WinAPIResolver::getProcAddress(WinAPIResolver::getHandleModuleByName(##dll), (char*)#func))
-#define _WAPI(dll, func) ((_##func)dynWAPI::getProcAddress(dynWAPI::getHandleModuleByName(##dll), (char*)#func))
-#endif
+#define _WAPI(dll, func) ((_##func)WinAPIResolver::getProcAddress(WinAPIResolver::getHandleModuleByName(##dll), (char*)#func))
